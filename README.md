@@ -60,7 +60,7 @@ Les autres fonctionnalités du [mandat PDF](https://ena.etsmtl.ca/pluginfile.php
 
 ## Objectifs de la séance
 
-1. **Finaliser les user stories** et les organiser dans le board (carry-over de la séance 2).
+1. **Finaliser les user stories** et les organiser dans le board.
 2. **Prototyper** les écrans dans Figma.
 3. **Choisir le framework Frontend** que l'équipe utilisera pour le projet.
 4. **Réfléchir à la stack technologique** complète à partir du repo de démo.
