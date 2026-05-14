@@ -1,0 +1,38 @@
+@startuml usecase
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam usecase {
+  BackgroundColor #F5F5F5
+  BorderColor #333333
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+}
+
+actor "Acheteur" as A
+actor "Vendeur" as V
+
+rectangle "Plateforme d'enchères" {
+  usecase "S'authentifier" as UC1
+  usecase "Parcourir la marketplace" as UC2
+  usecase "Participer à une enchère" as UC3
+  usecase "Gérer le portefeuille" as UC4
+  usecase "Consulter les commandes" as UC5
+  usecase "Gérer les produits" as UC6
+  usecase "Créer une enchère" as UC7
+}
+
+A --> UC1 : s'inscrit / se connecte
+A --> UC2 : explore les produits
+A --> UC3 : mise sur un produit
+A --> UC4 : ajoute des fonds
+A --> UC5 : consulte ses achats
+
+UC1 <-- V : s'inscrit / se connecte
+UC2 <-- V : explore les produits
+UC5 <-- V : consulte ses ventes
+UC6 <-- V : gère son inventaire
+UC7 <-- V : lance une enchère
+@enduml
