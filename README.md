@@ -12,196 +12,216 @@
 
 ---
 
-# Séance 3 : Prototypage UI et Frontend
+# Séance 4 : API Gateway + premier microservice
 
 **Durée :** 1 heure
 **Projet :** UniversalMarketPlace (Plateforme d'enchères)
 
 ---
 
-## Aperçu de la séance (30 secondes)
+## Aperçu de la séance
 
-1. **User stories** : écrire les user stories couvrant les 7 cas d'utilisation, et les regrouper sous un **milestone** dans le board.
-2. **Figma** : 3 écrans (Authentification, Marketplace, Détail enchère).
-3. **Choisir** un framework Frontend, l'**initialiser**, ouvrir une **PR** avec `olry` en reviewer.
-4. **Documenter** dans le README : choix du framework + liste **priorisée** des microservices + **première liste de technologies** (Backend, DB, etc.) inspirée du [repo de démo](https://github.com/olry/MGL844-Demo-Microservices).
-5. **Démarrer un sprint** dans votre board (fin : 20 mai 2026).
+1. **Rattrapage Séance 3** (si pas terminé) : Figma, framework init + PR, README à jour.
+2. **API Gateway** : un point d'entrée unique qui route vers vos microservices.
+3. **Premier microservice** (au choix de l'équipe, idéalement le 1er de votre liste priorisée de séance 3) : avec persistance (SQLite recommandé) et endpoints **POST** + **GET** pour créer/lister la ressource.
+4. **Docker Compose** : tout démarre avec une seule commande (`docker compose up`).
 
-> Détails ci-dessous. Bonus optionnels en bas si vous avez le temps.
+> **Stack libre.** Le repo de démo est en **Python/FastAPI**, mais vous pouvez utiliser n'importe quelle stack (Node/Express, Java/Spring Boot, Go, .NET, etc.) - tant que les **objectifs** ci-dessous sont atteints et que tout tourne dans Docker.
+
+> Détails ci-dessous. Bonus optionnels en bas.
 
 ---
 
 ## À faire **avant** la séance
 
-1. **Créer un compte Figma** (gratuit) et se connecter : https://www.figma.com
-2. **Lire** le mandat du projet *UniversalMarketPlace* : [Etude_CAS_donnees.pdf](https://ena.etsmtl.ca/pluginfile.php/2535104/mod_resource/content/9/Etude_CAS_donnees.pdf) (sur ENA).
-3. **Regarder** le diagramme de cas d'utilisation ci-dessous.
-
-> Si vous ne faites pas cette préparation, vous allez perdre du temps en classe.
+1. **Installer Docker Desktop** : https://www.docker.com/products/docker-desktop/
+2. **Cloner et démarrer** le [repo de démo](https://github.com/olry/MGL844-Demo-Microservices) (Gateway + 2 services + NATS) pour voir une référence qui tourne :
+   ```bash
+   git clone https://github.com/olry/MGL844-Demo-Microservices.git
+   cd MGL844-Demo-Microservices
+   cp .env.example .env       # Windows : copy .env.example .env
+   docker compose up -d --build
+   ```
+   Puis ouvrez http://localhost:3000 et testez les endpoints.
+3. **Lire** rapidement `backend/gateway/main.py` et `backend/services/hello-service/` dans le repo de démo : c'est la **structure de référence** dont vous pouvez vous inspirer pour vos propres services.
 
 ---
 
-## Périmètre du projet
+## Rattrapage Séance 3 (si pas terminé)
 
-Le diagramme suivant définit **ce que votre équipe doit livrer** d'ici la fin du cours. C'est la version simplifiée du projet. Vous allez construire une plateforme d'enchères avec deux acteurs : **Acheteur** et **Vendeur**.
+Si votre équipe n'a pas fini le mandat de la [séance 3](./archives/seance-03-prototypage-ui-frontend.md), commencez par ça :
 
-![Diagramme de cas d'utilisation : Plateforme d'enchères](./assets/usecase.png)
+- [ ] Lien Figma (3 écrans) dans le README
+- [ ] Framework Frontend initialisé sur une branche + PR vers `main` approuvée par au moins 1 coéquipier
+- [ ] README à jour : framework choisi (avec justification), liste **priorisée** des microservices, première liste de technos
+- [ ] `.gitignore` propre (pas de `node_modules/` commit)
 
-**7 cas d'utilisation à couvrir :**
-
-| Acteur | Cas d'utilisation |
-|---|---|
-| Acheteur | S'authentifier, Parcourir la marketplace, Participer à une enchère, Gérer le portefeuille, Consulter les commandes |
-| Vendeur | S'authentifier, Parcourir la marketplace, Consulter les commandes, Gérer les produits, Créer une enchère |
-
-Les autres fonctionnalités du [mandat PDF](https://ena.etsmtl.ca/pluginfile.php/2535104/mod_resource/content/9/Etude_CAS_donnees.pdf) (commission, paiement bancaire externe, notifications courriel, gestionnaire d'affaires) sont **optionnelles**, seulement pour les équipes qui veulent aller plus loin.
+**Date de remise Phase 1 :** voir [ENA](https://ena.etsmtl.ca/) sous l'onglet *Projet en équipe* (l'énoncé du projet ne fixe pas de date, elle est publiée sur ENA).
 
 ---
 
 ## Objectifs de la séance
 
-1. **Finaliser les user stories** et les organiser dans le board.
-2. **Prototyper** les écrans dans Figma.
-3. **Choisir le framework Frontend** que l'équipe utilisera pour le projet.
-4. **Réfléchir à la stack technologique** complète à partir du repo de démo.
-5. **Diviser le travail** dans votre board et planifier un premier sprint.
+1. **Comprendre** le rôle d'une API Gateway dans une architecture microservices.
+2. **Implémenter** une gateway qui route vers un microservice interne.
+3. **Implémenter** un microservice complet (au choix de l'équipe) avec persistance.
+4. **Conteneuriser** le tout avec Docker Compose.
+5. **Tester** les endpoints (POST création, GET liste).
+
+> **Choix techniques libres** (langage, framework, ORM). Le repo de démo `olry/MGL844-Demo-Microservices` est un exemple en Python/FastAPI - inspirez-vous-en, mais utilisez la stack qui convient à votre équipe.
 
 ---
 
-## Minimum obligatoire (tous les étudiants)
+## Minimum obligatoire (toutes les équipes)
 
-### 1. User stories + milestone
-- Écrire les **user stories** couvrant les 7 cas d'utilisation du diagramme (format conseillé : *« En tant que [acteur], je veux [action] afin de [objectif] »*).
-- Créer une **issue par user story** dans le board du projet.
-- Regrouper toutes ces issues sous un **milestone** dans le board (ex. *« Phase 1 : Conception »*).
+### 1. Structure du repo
 
-> Ces user stories vont alimenter votre **rapport Phase 1** (voir [Énoncé du projet pratique sur ENA](https://ena.etsmtl.ca/)).
+Créez un dossier `backend/` (à côté de `frontend/`) avec **un dossier pour la gateway** et **un dossier pour votre premier microservice**, chacun avec son propre `Dockerfile`. Exemple :
 
-### 2. Figma : 3 écrans
-- **Écran 1 :** *S'authentifier* (page de connexion / inscription)
-- **Écran 2 :** *Parcourir la marketplace* (liste des enchères / produits)
-- **Écran 3 :** *Détail d'une enchère* avec un bouton **Miser**
+```
+backend/
+├── docker-compose.yml          (peut aussi être à la racine)
+├── gateway/
+│   ├── Dockerfile
+│   └── ... (code source dans la stack de votre choix)
+└── services/
+    └── <votre-service>/        (nom au choix : produit, enchere, utilisateur, etc.)
+        ├── Dockerfile
+        └── ... (code source + fichier de BD SQLite)
+```
 
-### 3. Choix du framework Frontend + Init + Pull Request
-1. L'équipe **discute et choisit** un framework Frontend pour le projet (React, Vue, Angular, Svelte, ou autre).
-2. Documenter le choix dans le **README** avec une courte justification (2 ou 3 lignes : pourquoi ce framework ?).
-   - *Suggestion :* formulez la justification en lien avec les **tactiques de modificabilité** vues en cours, ex. *Split Module* (p. 18), *Encapsulate* (p. 20), *Use an intermediary* (p. 21), *Defer binding* (p. 17, tableau des tactiques). Exemple : *« React nous permet de splitter l'UI en composants encapsulés et de différer le binding via les props/state. »*
-3. **Initialiser** le squelette du projet avec l'outil officiel sur une nouvelle branche :
-   - React : `npx create-react-app frontend`
-   - Vue : `npm create vue@latest`
-   - Angular : `ng new frontend`
-   - Svelte : `npm create svelte@latest frontend`
-4. **Ouvrir une Pull Request** vers la branche principale du repo.
-5. **Ajouter `olry` comme reviewer** sur la PR (ne pas merger avant la revue).
+> Inspirez-vous de [`olry/MGL844-Demo-Microservices`](https://github.com/olry/MGL844-Demo-Microservices) (`backend/gateway/` et `backend/services/hello-service/`). C'est un exemple en Python/FastAPI - adaptez à votre stack.
 
-> Pourquoi la PR : un `.gitignore` mal configuré peut faire commit `node_modules/` et casser le repo. La revue me permet de vous donner du feedback avant le merge.
+### 2. API Gateway
 
-### 4. Liste **priorisée** des microservices (dans le README du repo)
-- Lister les microservices identifiés, en **ordre de priorité** (le plus prioritaire en premier). Exemple :
-  > Microservices prévus (par priorité) :
-  > 1. `Produit` (cœur du domaine, prérequis pour tout le reste)
-  > 2. `Enchère`
-  > 3. `Utilisateur` (auth + profil)
-  > 4. `Portefeuille`
-- 1 ligne de justification par microservice est suffisante.
+- Une seule application exposée sur le port **8000** (ajustable si justifié).
+- Une **table de routage** simple associant chaque préfixe d'URL à l'URL du service interne correspondant.
+  - Exemple : `/<ressource>/*` est routé vers `http://<votre-service>:8000/*` (ex. `/produits/*` vers `http://produit:8000/*`).
+- Un endpoint **`GET /health`** qui répond `200` avec `{"status": "ok"}`.
+- Une **doc Swagger / OpenAPI valide** exposée (ex. `/docs` ou `/swagger`), listant les routes proxyfiées.
+- **CORS** activé pour permettre au Frontend de l'appeler.
 
-### 5. Réflexion sur la stack technologique
-- L'équipe doit **commencer à réfléchir** aux technologies qu'elle utilisera pour la suite du projet (Backend, base de données, gateway, message queue, cache, load balancer, conteneurisation, etc.).
-- **Stack recommandée** (celle utilisée dans le repo de démo) : voir [`olry/MGL844-Demo-Microservices`](https://github.com/olry/MGL844-Demo-Microservices). Cette stack vous permet de partir vite et reste alignée avec le contenu des séances suivantes.
-- Si vous voulez utiliser **d'autres technologies**, c'est permis : documentez votre choix dans le README avec une courte justification.
-- Pas besoin de tout décider aujourd'hui : il suffit d'avoir une **première liste préliminaire** dans le README (vous pourrez l'ajuster aux prochaines séances).
+> Pourquoi une gateway ? Le Frontend n'appelle **qu'un seul point d'entrée**. La gateway sait quel service contacter. Si demain vous changez l'adresse du service `produit`, le Frontend n'a rien à changer.
 
-### 6. Sprint et division du travail (fortement recommandé)
-- Diviser le travail dans votre **board** (Kanban créé en séance 2).
-- Créer un **premier sprint** qui se termine le **mercredi 20 mai 2026**.
-- À partir du milestone créé en étape 1, sélectionner les **user stories** qui rentrent dans ce sprint. Chaque membre s'attribue ses issues.
+### 3. Premier microservice (au choix de l'équipe)
 
-> Ce point n'est pas strictement obligatoire à finir en classe, mais **fortement recommandé** : sans sprint et sans issues, vous allez vite perdre la trace du travail à mesure que le projet grossit.
+Choisissez **un** microservice à implémenter (idéalement le 1er de votre liste priorisée de séance 3 : produit, enchere, utilisateur, portefeuille, etc.). Le reste de cette section décrit le minimum attendu, peu importe la ressource choisie.
+
+- Persistance : **SQLite recommandé** (fichier `.db`, monté en volume Docker pour ne pas perdre les données entre `docker compose down`). Une autre BD légère est acceptée si justifiée.
+- Utilisez un **ORM ou un client BD propre** à votre stack (SQLAlchemy, Prisma, JPA, GORM, EF Core, etc.). Pas de SQL brut concaténé.
+- Modèle minimum : `id` + au moins 3 attributs métier pertinents pour la ressource choisie (ex. pour `produit` : `nom`, `description`, `prix`, `date_disponibilite`).
+
+**Endpoints obligatoires** (remplacez `<ressource>` par le nom au pluriel de votre ressource) :
+
+| Méthode | Chemin | Description | Réponse |
+|---|---|---|---|
+| `GET` | `/health` | Vérification que le service tourne | `200` + `{"status": "ok"}` |
+| `POST` | `/<ressource>` | Créer une ressource | `201` + la ressource créée (avec `id`) |
+| `GET` | `/<ressource>` | Lister toutes les ressources | `200` + liste |
+| `GET` | `/<ressource>/{id}` | Détail d'une ressource | `200` ou `404` |
+
+**Doc API obligatoire :** chaque service expose sa propre doc **Swagger / OpenAPI valide** (ex. `/docs`, `/swagger`, ou équivalent selon le framework). Elle doit refléter les endpoints réels et leurs schémas de requête/réponse.
+
+> Validez les entrées avec un **mécanisme de validation natif** de votre framework (Pydantic, class-validator, Joi, Bean Validation, etc.). Pas de validation maison fragile.
+
+### 4. Docker Compose
+
+Un seul fichier `docker-compose.yml` qui démarre :
+- `gateway` (port `8000` exposé)
+- votre microservice (pas exposé à l'hôte, seulement sur le réseau Docker interne)
+
+```bash
+docker compose up -d --build
+```
+
+doit tout démarrer. Et `docker compose down` doit tout arrêter proprement.
+
+### 5. Tests manuels
+
+Documentez les commandes `curl` (ou captures Postman) montrant, pour la ressource que vous avez choisie :
+
+1. **GET** `/health` sur la **gateway** retournant `200`.
+2. **GET** `/<ressource>/health` (via la gateway, routé vers votre microservice) retournant `200`.
+3. **POST** créant une ressource via la gateway. Exemple si vous avez choisi `produit` :
+   ```bash
+   curl -X POST http://localhost:8000/produits \
+     -H "Content-Type: application/json" \
+     -d '{"nom":"Vélo","description":"Vélo de route","prix":350.00,"date_disponibilite":"2026-06-01"}'
+   ```
+4. **GET** listant les ressources via la gateway.
+5. **GET** d'une ressource inexistante retournant `404`.
+
+### 6. Pull Request
+
+- Travail sur une **branche** (`backend-init`, `feat/gateway-produit`, etc.).
+- **PR** vers `main` avec **au moins 1 coéquipier en reviewer**.
+- **Au moins 1 approbation requise avant le merge.** Ne pas merger sa propre PR sans revue.
 
 ---
 
-## Bonus (optionnel, pour aller plus loin)
+## À finir en dehors de la séance (obligatoire)
 
-Choisissez **1 seul bonus** si vous avez le temps. Ne sacrifiez pas le minimum.
-
-- 4e écran Figma au choix :
-  - *Créer une enchère* (Vendeur)
-  - *Gérer le portefeuille* (Acheteur)
-  - *Gérer les produits* (Vendeur)
-  - *Consulter les commandes*
-- Commencer à coder un premier écran dans le framework choisi (statique, données en dur).
-- Brancher cet écran sur un vrai endpoint du microservice de la séance 1.
-- Ajouter un cas d'utilisation hors du diagramme (ex : notifications, commission).
+- **Brancher le Frontend** (séance 3) sur la gateway : au moins un écran qui affiche les données réelles de votre microservice (ex. liste des ressources via `GET /<ressource>`). À faire en dehors de l'heure de labo si pas le temps en classe.
 
 ---
 
-## Livrables à la fin de la séance
+## Livrables avant la prochaine séance
 
 | Livrable | Où | Obligatoire |
 |---|---|:---:|
-| User stories (issues) regroupées sous un milestone | Board/Kanban du projet | Oui |
-| Lien Figma (3 écrans) | README du repo Github | Oui |
-| Choix du framework Frontend (avec justification) | README du repo Github | Oui |
-| Init du projet framework + Pull Request avec `olry` en reviewer | Repo Github | Oui |
-| Liste **priorisée** des microservices | README du repo Github | Oui |
-| Première liste de technologies envisagées (Backend, DB, etc.) | README du repo Github | Oui |
-| Sprint + issues dans le board (fin sprint : 20 mai 2026) | Board/Kanban du projet | Recommandé |
-| Bonus (4e écran Figma, code Frontend, etc.) | README | Non |
+| Dossier `backend/gateway/` (code + Dockerfile) | Repo Github | Oui |
+| Dossier `backend/services/<votre-service>/` (code + persistance + Dockerfile) | Repo Github | Oui |
+| `docker-compose.yml` qui démarre les 2 services | Repo Github | Oui |
+| Endpoints POST/GET `/<ressource>` fonctionnels via la gateway | Repo Github | Oui |
+| `/health` sur gateway **et** sur votre microservice (GET simple, 200) | Repo Github | Oui |
+| Doc Swagger / OpenAPI valide pour gateway **et** votre microservice | Repo Github | Oui |
+| Exemples `curl` documentés dans le README (health, POST, GET, 404) | README | Oui |
+| PR vers `main` approuvée par au moins 1 coéquipier avant merge | Repo Github | Oui |
+| Frontend branché sur la gateway (au moins 1 écran avec données réelles) | Repo Github | Oui (peut être fini hors séance) |
 
 ---
 
 ## Outils recommandés
 
-> Vous pouvez utiliser **d'autres outils** si vous préférez. L'important : que ce soit clair et partageable.
+- **Docker Compose** (obligatoire) : https://docs.docker.com/compose/
+- **Repo de référence** (Python/FastAPI) : https://github.com/olry/MGL844-Demo-Microservices
 
-- **Figma** (gratuit) : https://www.figma.com
-  - Tutoriel rapide (10 min) : https://www.figma.com/resource-library/design-basics/
-- **Frameworks Frontend** (au choix) :
-  - React : https://react.dev
-  - Vue : https://vuejs.org
-  - Angular : https://angular.io
-  - Svelte : https://svelte.dev
-- **Inspiration UI** :
-  - https://dribbble.com (chercher "marketplace" ou "auction")
+**Stacks possibles** (choisissez celle qui convient à l'équipe) :
+- Python : [FastAPI](https://fastapi.tiangolo.com/) + [SQLAlchemy](https://docs.sqlalchemy.org/) + [Pydantic](https://docs.pydantic.dev/)
+- Node.js : [Express](https://expressjs.com/) ou [NestJS](https://nestjs.com/) + [Prisma](https://www.prisma.io/) / [TypeORM](https://typeorm.io/)
+- Java : [Spring Boot](https://spring.io/projects/spring-boot) + JPA
+- Go : [Gin](https://gin-gonic.com/) ou [Echo](https://echo.labstack.com/) + [GORM](https://gorm.io/)
+- .NET : [ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/) + Entity Framework Core
 
-Alternatives au Figma : Penpot (open source), Sketch, Adobe XD, ou même un dessin sur papier scanné.
+Tester les endpoints : `curl`, [Postman](https://www.postman.com/), [HTTPie](https://httpie.io/), ou la **doc OpenAPI/Swagger** si votre framework la génère.
 
 ---
 
 ## Conseils
 
-- **Restez simples.** Ce n'est pas un cours de design, c'est un cours d'architecture logicielle.
-- **Pensez aux données** que chaque écran affiche. Ce sont les futurs endpoints de vos microservices (séance 4).
-- **Attention au temps** : `npm install` peut prendre quelques minutes. Lancez la commande d'init **dès le début de la séance** pendant que vous travaillez sur Figma en parallèle.
+- **Lancez `docker compose up --build` tôt.** La première build télécharge plusieurs images Python, ça prend du temps.
+- **Une responsabilité par service.** La gateway **ne contient pas** de logique métier - elle route, c'est tout.
+- **Logs lisibles.** Loguez chaque requête entrante dans la gateway - vous allez vous en remercier à la séance 5 (observabilité).
+- **`.gitignore`** : excluez les fichiers de BD (`*.db`), les caches de votre langage (`__pycache__/`, `node_modules/`, `target/`, `bin/obj/`, etc.), les `.venv/` et `.env`.
+- **Ne hard-codez pas les URLs** des services internes : utilisez les **noms de services Docker** (ex. `http://<votre-service>:8000`) - c'est le DNS interne de Docker Compose.
 
-> **Note `.gitignore`** : vérifiez votre `.gitignore` **avant** le premier commit. Sans ça, vous risquez de pousser `node_modules/` et de commit plus de **300 000 lignes** de fichiers générés. La PR sera refusée si c'est le cas.
+> Pourquoi pas de logique métier dans la gateway : si demain vous splittez un service en deux, seule la table de routage de la gateway change. Le Frontend ne voit rien.
 
 ---
 
 ## Critères de "fait" (vérification rapide)
 
-- [ ] Les user stories sont créées comme issues, regroupées sous un milestone.
-- [ ] Les 3 écrans Figma sont visibles via un lien partagé.
-- [ ] Le framework Frontend choisi est documenté dans le README avec une justification.
-- [ ] Le projet framework est initialisé et une PR est ouverte avec `olry` en reviewer.
-- [ ] Le `.gitignore` exclut `node_modules/` et autres fichiers générés.
-- [ ] Le README contient : lien Figma, framework choisi, liste priorisée des microservices, première liste de technologies envisagées.
-- [ ] Un premier sprint et des issues existent dans le board (fortement recommandé).
-
----
-
-## Lien avec le cours
-
-Cette séance pratique met en application plusieurs notions du cours sur la **modificabilité** (slides Automne 2025, *La modificabilité*, prof. Ghizlane El Boussaidi). Références de pages indicatives (le titre du slide reste la référence en cas de renumérotation).
-
-- **Prototype Figma avant le code** : concevoir une *interface flexible* avant l'implémentation, pour absorber les changements sans réécrire le code.
-  - *Cf. p. 23 « Conception pour la modificabilité » (créer des interfaces flexibles) et p. 24 (prévoir des points de variation).*
-- **Découpage en écrans / composants** : application directe des tactiques *Split Module* et *Encapsulate* (chaque écran isole une responsabilité).
-  - *Cf. p. 17 (tableau des tactiques), p. 18 « Split Module », p. 20 « Encapsulate ».*
-- **Choix du framework Frontend** : un framework moderne (React, Vue, etc.) intègre nativement la tactique *Defer Binding* (props, state, configuration) et facilite la *variation à l'exécution*.
-  - *Cf. p. 17 « Defer binding » (tableau des tactiques) et p. 24 (« plusieurs patrons de conception permettent la variation à l'exécution »).*
-- **PR + revue + `.gitignore` propre** : application de *« Gérer efficacement les modifications »* (gestion de configuration, contrôle des changements à travers les versions).
-  - *Cf. p. 25 « Gérer efficacement les modifications » (gestion de la configuration, intégration continue).*
+- [ ] `docker compose up -d --build` à la racine démarre gateway + microservice sans erreur.
+- [ ] `GET http://localhost:8000/health` (gateway) répond `200`.
+- [ ] `GET http://localhost:8000/<ressource>/health` (microservice via gateway) répond `200`.
+- [ ] **Doc Swagger valide** de la **gateway** accessible (ex. `http://localhost:8000/docs`).
+- [ ] **Doc Swagger valide** du **microservice** accessible (via la gateway ou en direct sur le réseau Docker).
+- [ ] `POST http://localhost:8000/<ressource>` crée une ressource et retourne `201` + l'objet créé.
+- [ ] `GET http://localhost:8000/<ressource>` retourne la liste (incluant la ressource créée).
+- [ ] `GET http://localhost:8000/<ressource>/{id_inexistant}` retourne `404`.
+- [ ] Les données persistent après `docker compose down` puis `up` (volume monté).
+- [ ] PR ouverte vers `main`, approuvée par au moins 1 coéquipier avant le merge.
+- [ ] `.gitignore` ne contient pas `*.db`, `__pycache__/`, etc. commit.
 
 ---
 
