@@ -1,0 +1,50 @@
+@startuml messaging-after
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam component {
+  BackgroundColor #F5F5F5
+  BorderColor #333333
+}
+skinparam database {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+}
+skinparam queue {
+  BackgroundColor #E8F0FE
+  BorderColor #333333
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+}
+title Apres : communication asynchrone (pub/sub via NATS), services decouples
+
+actor "Client" as C
+
+component "orders-service" as O
+queue "NATS\nsujet : sale.completed" as Q
+component "wallet-service" as W
+component "products-service" as P
+component "email-service\n(ajoute plus tard)" as E
+
+database "orders db" as OD
+database "wallet db" as WD
+database "products db" as PD
+
+C --> O : POST /sale
+O --> OD : enregistre la vente
+O --> Q : publish sale.completed\n(repond tout de suite au client)
+Q --> W : subscribe
+Q --> P : subscribe
+Q ..> E : subscribe
+W --> WD : debite / credite
+P --> PD : change le proprietaire
+
+note bottom of Q
+  orders ne connait aucun consommateur.
+  On branche email-service sans toucher a orders.
+  Si wallet tombe, il rattrape les messages
+  au redemarrage (broker durable : JetStream / Kafka).
+end note
+@enduml

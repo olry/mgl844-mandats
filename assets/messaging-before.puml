@@ -1,0 +1,42 @@
+@startuml messaging-before
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam component {
+  BackgroundColor #F5F5F5
+  BorderColor #333333
+}
+skinparam database {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+}
+title Avant : communication synchrone (HTTP), services couples
+
+actor "Client" as C
+
+component "orders-service" as O
+component "wallet-service" as W
+component "products-service" as P
+
+database "orders db" as OD
+database "wallet db" as WD
+database "products db" as PD
+
+C --> O : POST /sale
+O --> OD : enregistre la vente
+O --> W : HTTP debiter / crediter\n(bloque, attend la reponse)
+O --> P : HTTP changer le proprietaire\n(bloque, attend la reponse)
+W --> WD
+P --> PD
+
+note bottom of O
+  orders doit connaitre wallet ET products,
+  leurs URLs et leur disponibilite.
+  Si wallet est en panne, toute la vente
+  echoue et le client attend.
+end note
+@enduml

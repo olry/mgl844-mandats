@@ -12,7 +12,7 @@
 
 ---
 
-# Séances 5 et 6 : Authentification (JWT) + Logging structuré
+# Séance 7 : Message Queue : communication asynchrone (pub/sub)
 
 **Durée :** 1 heure
 **Projet :** UniversalMarketPlace (Plateforme d'enchères)
@@ -21,273 +21,349 @@
 
 ## Aperçu de la séance
 
-1. **Auth microservice** : un nouveau microservice qui gère l'inscription, la connexion et l'émission d'un **JWT** (JSON Web Token).
-2. **Protection des routes** : refuser l'accès aux endpoints sensibles si le JWT est absent ou invalide.
-3. **Login page** côté frontend : envoyer les identifiants, recevoir le token, le stocker, le renvoyer dans les requêtes suivantes.
-4. **Logs structurés (JSON)** par service : chaque service écrit ses logs en JSON sur `stdout`, avec les champs `ts`, `level`, `service`, `msg` au minimum.
+Cette séance introduit la communication **asynchrone** entre microservices via une **message queue**. Quatre notions à retenir :
 
-> **Stack libre.** Le repo de démo est en Python/FastAPI avec PyJWT et passlib/bcrypt. Vous pouvez utiliser n'importe quelle stack tant que les **objectifs** ci-dessous sont atteints.
+1. **Broker de messages** : un service d'infrastructure (NATS dans la démo) qui transporte les événements.
+2. **Producteur (publisher)** : un microservice qui publie un événement après une action métier (ex. `user.created`, `bid.placed`, `auction.closed`).
+3. **Consommateur (subscriber)** : un autre microservice qui s'abonne au sujet et réagit (ex. crée une notification, met à jour une vue).
+4. **Découplage** : le producteur n'a **pas besoin de connaître** le consommateur. On peut ajouter un nouveau consommateur sans toucher au producteur.
+
+> **Stack libre.** Le repo de démo utilise **NATS** (`nats-py`), un broker léger qui démarre en un seul conteneur, idéal pour un labo d'une heure. Le principe **pub/sub** est le même que sur **Apache Kafka** ou **RabbitMQ** ; voyez la section *Kafka, RabbitMQ et NATS* plus bas. Vous pouvez utiliser n'importe quel broker tant que les **objectifs** sont atteints.
 
 ---
 
 ## À faire **avant** la séance
 
-1. **Mettre à jour** le [repo de démo](https://github.com/olry/MGL844-Demo-Microservices) (un `auth-service` y a été ajouté) :
+1. **Mettre à jour** le [repo de démo](https://github.com/olry/MGL844-Demo-Microservices) (le broker NATS et le flux `user.created` y sont déjà câblés) :
    ```bash
    cd MGL844-Demo-Microservices
    git pull
    docker compose up -d --build
    ```
+2. **Observer le flux** en direct (voir *Tests manuels* en bas) : créez un utilisateur via la gateway, puis vérifiez qu'une **notification** apparaît dans le notification-service sans qu'aucun appel HTTP direct n'ait eu lieu entre les deux services.
 
 ---
 
 ## Objectifs de la séance
 
-1. **Comprendre** le rôle d'un token JWT : signature, expiration, payload, vérification.
-2. **Implémenter** un microservice d'authentification (inscription, connexion, émission de JWT).
-3. **Protéger** au moins une route d'un autre microservice : accès refusé sans token valide.
-4. **Brancher** la login page du frontend sur le service d'authentification.
-5. **Émettre** des logs JSON structurés dans chaque service.
+1. **Comprendre** la différence entre communication **synchrone** (HTTP) et **asynchrone** (message queue), et quand préférer l'une à l'autre.
+2. **Comprendre** le modèle **pub/sub** : sujet (topic/subject), producteur, consommateur, découplage.
+3. **Publier** un événement métier depuis un microservice après une action (ex. création d'une ressource).
+4. **Consommer** cet événement dans un autre microservice et y **réagir** (persister, notifier, etc.).
+5. **Démontrer le découplage** : les deux services ne s'appellent jamais directement en HTTP ; ils communiquent uniquement via le broker.
 
 ---
 
-## Concept : pourquoi JWT ?
+## Le problème : synchrone vs asynchrone
 
-Un **JWT** est une chaîne signée que le serveur émet après une connexion réussie. Le client la stocke et la renvoie dans l'en-tête `Authorization: Bearer <token>` à chaque requête.
+Jusqu'ici, vos services s'appellent en **synchrone** par HTTP : le service A appelle B et **attend** sa réponse. Tant que B n'a pas répondu, A est bloqué ; si B est en panne, l'appel échoue. Les deux services sont **couplés dans le temps**.
 
-Avantages :
-- **Stateless** : le serveur n'a rien à stocker côté session, la signature suffit à valider le token.
-- **Portable** : tout microservice qui connaît la clé (ou la clé publique en RS256) peut vérifier le token sans appeler le service d'auth.
-- **Court** : durée de vie limitée (ex. 1h), ce qui réduit l'impact d'un token volé.
+Une **message queue** casse ce couplage : A **publie** un événement et continue tout de suite ; le broker garde le message ; les services intéressés le **consomment** chacun de leur côté, quand ils peuvent.
 
-Un JWT contient 3 parties séparées par des points : `header.payload.signature`. Le payload est en clair (base64), donc **ne jamais y mettre de mot de passe ou de donnée sensible**.
+Prenons un cas réel de UniversalMarketPlace : un acheteur vient de gagner une enchère. Trois services sont concernés : `orders`, `wallet` (le portefeuille) et `products` (qui doit changer de propriétaire).
+
+#### Avant : appels HTTP synchrones, services couplés
+
+`orders` appelle `wallet` pour déplacer l'argent, attend, puis appelle `products` pour changer le propriétaire, et attend encore. Si `wallet` est en panne, toute la vente échoue, et `orders` doit connaître les deux autres services et leur disponibilité.
+
+<p align="center">
+  <img src="./assets/messaging-before.png" alt="Avant : communication synchrone (HTTP), services couplés" width="640"/>
+</p>
+
+Chaque service garde **sa propre base de données** (pas de base partagée), mais les flèches HTTP partent toutes de `orders` : c'est lui le point de couplage.
+
+#### Après : événement publié sur le broker, services découplés
+
+<p align="center">
+  <img src="./assets/messaging-after.png" alt="Après : communication asynchrone (pub/sub via NATS), services découplés" width="680"/>
+</p>
+
+`orders` publie `sale.completed` et répond au client sans attendre. `wallet` et `products` réagissent chacun de leur côté, sur leur propre base. On peut brancher un nouveau consommateur (ex. `email-service`) sans toucher à `orders`.
+
+> Le code ci-dessous est un **pseudocode d'illustration** du scénario. Le code réel qui tourne déjà dans la démo (flux `user.created`) est plus bas, section *Exemple de référence*.
+
+### Producteur : le service `orders` publie la vente
+
+```python
+import json
+import nats
+
+async def confirm_sale(nc, product_id: int, buyer_id: int, seller_id: int, amount: int):
+    event = {
+        "product_id": product_id,
+        "buyer_id": buyer_id,
+        "seller_id": seller_id,
+        "amount": amount,
+    }
+    await nc.publish("sale.completed", json.dumps(event).encode())
+    # orders a terminé. Il n'attend ni wallet ni products.
+```
+
+### Consommateur 1 : le service `wallet` déplace l'argent
+
+```python
+async def on_sale(msg):
+    e = json.loads(msg.data)
+    await debit(e["buyer_id"], e["amount"])    # on débite l'acheteur
+    await credit(e["seller_id"], e["amount"])  # on crédite le vendeur
+
+nc = await nats.connect("nats://nats:4222")
+await nc.subscribe("sale.completed", cb=on_sale)
+```
+
+### Consommateur 2 : le service `products` change le propriétaire
+
+```python
+async def on_sale(msg):
+    e = json.loads(msg.data)
+    await set_owner(e["product_id"], e["buyer_id"])  # le produit change de mains
+
+nc = await nats.connect("nats://nats:4222")
+await nc.subscribe("sale.completed", cb=on_sale)
+```
+
+**Ce qu'on gagne :**
+- **Découplage** : `orders` ignore qui consomme. Brancher un `email-service` sur `sale.completed` ne change **rien** dans `orders`.
+- **Résilience** : si `wallet` est momentanément en panne, `orders` n'est pas bloqué et répond quand même au client. (Pour que `wallet` traite le message *à son retour* au lieu de le perdre, il faut un broker durable ; voir *Notes de résilience*.)
+- **Scalabilité** : on peut lancer plusieurs instances d'un consommateur pour absorber la charge.
+
+**Ce que ça coûte :**
+- **Cohérence éventuelle** : pendant quelques millisecondes, l'argent a bougé mais le propriétaire du produit n'est pas encore à jour (ou l'inverse). On l'accepte en échange du découplage.
+- **Débogage plus difficile** : le flux n'est plus une simple pile d'appels. Les logs structurés (séances 5 et 6) deviennent essentiels pour suivre un événement bout en bout.
+- **Rattrapage des pannes** : si une étape échoue après coup, il faut une compensation (republier un événement correctif). C'est le principe des *sagas*, hors sujet pour cette séance.
+
+> Autres bons candidats à l'asynchrone dans UniversalMarketPlace : `bid.placed` (notifier le vendeur, rafraîchir le prix) et `auction.closed` (créer la commande, notifier le gagnant).
 
 ---
 
 ## Minimum obligatoire (toutes les équipes)
 
-### 1. Microservice `auth-service`
+### 1. Un broker de messages dans `docker compose`
 
-Endpoints obligatoires :
+- Un service broker (NATS, RabbitMQ ou Kafka) démarre avec le reste via `docker compose up`.
+- Les microservices producteur et consommateur **dépendent** du broker (`depends_on`) et lisent son adresse depuis une **variable d'environnement** (`NATS_URL`, etc.), jamais en dur.
 
-| Méthode | Chemin | Description | Réponse |
-|---|---|---|---|
-| `GET` | `/health` | Vérification que le service tourne | `200` + `{"status": "ok"}` |
-| `POST` | `/auth/register` | Créer un compte | `201` + `{id, username}` |
-| `POST` | `/auth/login` | Vérifier les identifiants et émettre un JWT | `200` + `{access_token, token_type, expires_in}` ou `401` |
-| `GET` | `/auth/me` | Retourner l'utilisateur courant (lit le JWT dans `Authorization`) | `200` + `{id, username}` ou `401` |
+### 2. Un producteur qui publie un événement
 
-**Règles non-négociables :**
-- **Hachage des mots de passe** avec bcrypt, argon2 ou équivalent. Jamais en clair en BD, jamais dans les logs.
-- **JWT signé** avec un secret lu depuis une variable d'environnement (`JWT_SECRET`). Pas de secret hardcodé.
-- **Expiration** : champ `exp` dans le payload, durée raisonnable (ex. 60 minutes).
-- **Même message d'erreur** pour "utilisateur inconnu" et "mauvais mot de passe" (évite l'énumération des comptes).
+- Après une action métier réussie (ex. `POST` qui crée une ressource), le service **publie un événement** sur un sujet nommé en `domaine.action` (ex. `user.created`, `bid.placed`).
+- Le **payload** est un JSON minimal et explicite (les identifiants utiles, pas l'objet entier). Jamais de donnée sensible (mot de passe, token).
+- La publication ne doit **pas casser** la réponse HTTP au client : on répond au client même si un consommateur est absent.
 
-### 2. Protection des routes
+### 3. Un consommateur qui s'abonne et réagit
 
-**Toutes les routes** de vos microservices (autres que `auth-service`) doivent refuser l'accès sans JWT valide. **Seule exception : `/health`**, qui doit rester accessible sans token (Docker et la gateway l'appellent pour vérifier que le service tourne).
+- Un **autre** microservice **s'abonne** au sujet au démarrage et **réagit** à chaque message (ex. crée une notification, met à jour une donnée locale).
+- Le consommateur **ne fait aucun appel HTTP** vers le producteur : toute l'information nécessaire est dans l'événement (ou récupérée par lui-même).
 
-Pour chaque route protégée :
-- Pas de header `Authorization` : `401`.
-- Token signé avec une autre clé : `401`.
-- Token expiré : `401`.
-- Token valide : la route répond normalement.
+### 4. Découplage démontrable
 
-Côté `auth-service`, `/auth/login` et `/auth/register` restent évidemment **publics** (sinon personne ne peut se connecter).
+- Couper/retirer le consommateur **ne casse pas** le producteur : l'action métier (création) réussit quand même.
+- Au redémarrage du consommateur, il recommence à traiter les nouveaux événements.
 
-> **Choix d'architecture libre :** vérification dans la gateway, dans chaque service, ou les deux. Justifiez brièvement dans le README.
+### 5. Logs structurés (rappel séances 5 et 6)
 
-### 3. Login page (frontend)
-
-- Un formulaire `username` + `password` qui appelle `POST /auth/login` via la gateway.
-- Stocker le token reçu (localStorage, sessionStorage, cookie httpOnly, etc.).
-- Renvoyer le token dans `Authorization: Bearer <token>` pour les requêtes suivantes.
-- Afficher un message d'erreur si l'authentification échoue.
-- Si le token expire (401 reçu), rediriger vers la login page.
-
-### 4. Logs structurés (JSON)
-
-Chaque service écrit ses logs **en JSON** sur `stdout`, une ligne par log. Champs minimum :
-
-```json
-{"ts": "2026-05-27T10:15:32.123+00:00", "level": "INFO", "service": "auth-service", "msg": "login_success", "user_id": 42}
-```
-
-À logguer **au minimum** dans `auth-service` :
-- `login_success` (info) avec `user_id` et `username`.
-- `login_failed` (warning) avec `username` (jamais le mot de passe).
-- `register_conflict` (warning) si username déjà pris.
-- `token_invalid` (warning) sur tentative d'accès avec token invalide.
-
-### 5. Pull Request
-
-- Branche dédiée (`feat/auth`, `feat/jwt`, etc.).
-- **PR vers `main` avec au moins 1 coéquipier en reviewer.**
-- **Au moins 1 approbation requise avant le merge.**
+Chaque côté logue l'événement en **JSON** :
+- Producteur : `event_published` (info) avec le sujet et l'id concerné.
+- Consommateur : `event_received` (info) avec le sujet et l'id, puis le résultat du traitement.
 
 ---
 
-## Exemple de référence (Python/FastAPI)
+## Exemple de référence (Python/FastAPI + NATS)
 
-Le repo de démo `olry/MGL844-Demo-Microservices` contient maintenant `backend/services/auth-service/`. Voici les morceaux clés à comprendre. **Inspirez-vous-en pour votre stack**, ne copiez pas mécaniquement si ce n'est pas Python.
+Le repo de démo `olry/MGL844-Demo-Microservices` câble déjà le flux `user.created` : **hello-service** publie, **notification-service** consomme. **Inspirez-vous-en pour votre stack**, ne copiez pas mécaniquement si ce n'est pas Python.
 
-### Hachage du mot de passe (`security.py`)
+### Le broker dans `docker-compose.yml`
 
-```python
-from passlib.context import CryptContext
-
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def hash_password(plain: str) -> str:
-    return _pwd.hash(plain)
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd.verify(plain, hashed)
+```yaml
+nats:
+  image: nats:2.10-alpine
+  command: ["--http_port=8222"]   # active l'endpoint de monitoring /healthz
+  ports:
+    - "${NATS_PORT}:4222"          # port client
+    - "${NATS_MONITOR_PORT}:8222"  # monitoring HTTP
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q -O - http://localhost:8222/healthz | grep -q '\"status\":\"ok\"'"]
 ```
 
-### Émission d'un JWT (`security.py`)
+Les services producteur/consommateur déclarent `depends_on: { nats: { condition: service_healthy } }`.
+
+### Connexion au broker (au démarrage, dans le `lifespan`)
 
 ```python
-from datetime import datetime, timedelta, timezone
-import jwt
-from auth_app.config import settings
+import nats
+from contextlib import asynccontextmanager
 
-def create_access_token(user_id: int, username: str) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": str(user_id),
-        "username": username,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=settings.jwt_expires_min)).timestamp()),
-    }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-```
-
-### Route `/auth/login` (`controllers/auth.py`)
-
-```python
-@router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    user = await get_by_username(db, payload.username)
-    if user is None or not verify_password(payload.password, user.password_hash):
-        logger.warning("login_failed", extra={"username": payload.username})
-        raise HTTPException(status_code=401, detail="invalid credentials")
-    token = create_access_token(user_id=user.id, username=user.username)
-    logger.info("login_success", extra={"user_id": user.id, "username": user.username})
-    return TokenResponse(access_token=token, expires_in=settings.jwt_expires_min * 60)
-```
-
-### Dépendance "current_user" (à copier dans toute route protégée)
-
-```python
-async def current_user(authorization: str | None = Header(default=None)) -> dict:
-    if authorization is None or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="missing bearer token",
-                            headers={"WWW-Authenticate": "Bearer"})
-    token = authorization.split(" ", 1)[1].strip()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    nc = await nats.connect(settings.nats_url)  # NATS_URL = nats://nats:4222
+    app.state.nats = nc            # gardé pour que les routes puissent publier
     try:
-        return decode_access_token(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="invalid or expired token",
-                            headers={"WWW-Authenticate": "Bearer"})
+        yield
+    finally:
+        await nc.drain()           # vide proprement avant l'arrêt
 ```
 
-### Logs JSON (`logging_config.py`, extrait)
+### Producteur : publier après l'action métier (`hello-service`, `controllers/user.py`)
 
 ```python
-class JsonFormatter(logging.Formatter):
-    def format(self, record):
-        payload = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
-            "level": record.levelname,
-            "service": "auth-service",
-            "logger": record.name,
-            "msg": record.getMessage(),
-        }
-        for k, v in record.__dict__.items():
-            if k not in RESERVED:
-                payload[k] = v
-        return json.dumps(payload, default=str)
+@router.post("", response_model=UserOut, status_code=201)
+async def create(payload: UserCreate, request: Request, db: AsyncSession = Depends(get_db)):
+    u = await create_user(db, payload.name)
+
+    # NATS attend des bytes : on encode le JSON en utf-8.
+    await request.app.state.nats.publish(
+        "user.created",
+        json.dumps({"id": u.id, "name": u.name}).encode(),
+    )
+    return UserOut.model_validate(u)
 ```
 
-> Le fichier complet est dans le repo de démo. Lisez-le, lancez-le, puis adaptez à votre stack (Node/Winston, Java/Logback JSON, Go/zerolog, .NET/Serilog, etc.).
+### Consommateur : s'abonner et réagir (`notification-service`, `notif_app/main.py`)
+
+```python
+# Callback appelé par NATS à chaque message reçu sur "user.created".
+async def handle_user_created(msg) -> None:
+    data = json.loads(msg.data)
+    message = f"Bonjour {data['name']} ! (id={data['id']})"
+    async with SessionLocal() as db, db.begin():
+        await create_notification(db, message)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    nc = await nats.connect(settings.nats_url)
+    await nc.subscribe("user.created", cb=handle_user_created)  # abonnement
+    app.state.nats = nc
+    try:
+        yield
+    finally:
+        await nc.drain()
+```
+
+> Le callback est **isolé au niveau module** exprès : on peut le tester en unitaire (lui passer un faux `msg`) sans serveur NATS qui tourne.
 
 ---
 
-## Équivalents pour les autres stacks
+## Kafka, RabbitMQ et NATS : même principe, échelles différentes
 
-| Stack | JWT | Hachage mot de passe | Logs JSON |
+Le plan du cours mentionne **Apache Kafka**. La démo utilise **NATS** car il démarre en un seul conteneur léger (pas de Zookeeper/KRaft, pas d'administration de topics), adapté à une heure de labo. Le **modèle pub/sub est identique** ; comprenez les équivalences :
+
+| Notion | NATS | Apache Kafka | RabbitMQ |
 |---|---|---|---|
-| Node.js | [`jsonwebtoken`](https://www.npmjs.com/package/jsonwebtoken) | [`bcrypt`](https://www.npmjs.com/package/bcrypt) ou `argon2` | [`pino`](https://github.com/pinojs/pino), [`winston`](https://github.com/winstonjs/winston) |
-| Java/Spring | `spring-boot-starter-oauth2-resource-server` ou `jjwt` | `BCryptPasswordEncoder` | Logback `JsonLayout` |
-| Go | `github.com/golang-jwt/jwt/v5` | `golang.org/x/crypto/bcrypt` | `zerolog`, `zap` |
-| .NET | `Microsoft.AspNetCore.Authentication.JwtBearer` | `PasswordHasher<T>` | `Serilog` + `Serilog.Formatting.Json` |
+| Canal | *subject* (`user.created`) | *topic* (partitionné) | *exchange* + *queue* |
+| Mise à l'échelle des consommateurs | *queue group* | *consumer group* (par partition) | *competing consumers* |
+| Persistance / rejouabilité | mémoire (ou JetStream pour la durabilité) | log persistant, rejouable (offsets) | file persistée, accusé de réception |
+| Démarrage | 1 conteneur, ~instantané | broker + KRaft/Zookeeper, plus lourd | 1 conteneur + plugin management |
+
+> **Pour aller plus loin (théorie) :** Kafka brille quand on a besoin de **rejouer** l'historique des événements, d'un **ordre par clé** (partitions) et d'un débit très élevé. Sachez expliquer *pourquoi* à la démo finale, même si vous livrez avec NATS.
+
+> **Side note : "Kafka peut être synchrone aussi, non ?"** En partie. Un producteur Kafka peut **bloquer** en attendant l'accusé d'écriture du broker (`future.get()`, `acks=all`), mais il attend que le **message soit écrit dans le log**, pas une réponse métier d'un autre service ; la consommation, elle, reste toujours en *pull* asynchrone. Le vrai *request/reply* (A interroge B et attend sa réponse, comme en HTTP) n'est pas natif sur Kafka. NATS, lui, l'offre nativement avec `nc.request(...)`. Retenez la vraie distinction : « synchrone vs asynchrone » porte sur le fait que **l'appelant bloque ou non pour une réponse**, ce qui est indépendant du transport (HTTP ou message queue).
+
+### Équivalents pour les autres stacks
+
+| Stack | NATS | Kafka | RabbitMQ (AMQP) |
+|---|---|---|---|
+| Node.js | [`nats`](https://www.npmjs.com/package/nats) | [`kafkajs`](https://kafka.js.org/) | [`amqplib`](https://www.npmjs.com/package/amqplib) |
+| Java/Spring | `jnats` | `spring-kafka` | `spring-amqp` |
+| Go | `nats.go` | `segmentio/kafka-go` | `amqp091-go` |
+| .NET | `NATS.Client` | `Confluent.Kafka` | `RabbitMQ.Client` |
 
 ---
 
 ## Tests manuels
 
-Avec le repo de démo qui tourne (`docker compose up -d`), depuis l'extérieur (port `8000` = gateway) :
+Avec le repo de démo qui tourne (`docker compose up -d`), port `8000` = gateway :
 
 ```bash
-# 1. Créer un compte
-curl -X POST http://localhost:8000/auth/auth/register \
+# 1. Créer un utilisateur (déclenche la publication de "user.created").
+curl -X POST http://localhost:8000/hello/users \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"hunter2!"}'
+  -d '{"name":"Alice"}'
 
-# 2. Se connecter et récupérer le token
-TOKEN=$(curl -s -X POST http://localhost:8000/auth/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"hunter2!"}' | jq -r .access_token)
-echo "$TOKEN"
-
-# 3. Accéder à /auth/me avec le token (200)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/auth/auth/me
-
-# 4. Sans token (401)
-curl -i http://localhost:8000/auth/auth/me
-
-# 5. Avec un token bidon (401)
-curl -i -H "Authorization: Bearer notarealtoken" http://localhost:8000/auth/auth/me
+# 2. Vérifier qu'une notification a été créée par le CONSOMMATEUR,
+#    sans appel HTTP direct entre les deux services.
+#    Si "Alice" apparaît ici, c'est que l'événement NATS a bien circulé.
+curl http://localhost:8000/notify/notifications
 ```
 
-> Le double `/auth/auth/` n'est pas une faute de frappe : le premier `/auth` est le préfixe de routage de la gateway vers `auth-service`, le second est le préfixe du `APIRouter` interne au service. Vos équipes peuvent simplifier ce nommage si elles veulent.
+C'est l'étape 2 qui **prouve** que l'événement a traversé le broker : `notification-service` n'a jamais appelé `hello-service`, il a seulement reçu le message `user.created`.
+
+> **Note :** dans le repo de démo, `hello-service` et `notification-service` n'écrivent pas encore de logs structurés (seul `auth-service` le fait, depuis les séances 5 et 6). Les lignes `event_published` / `event_received` décrites au *Minimum obligatoire* sont donc **ce que vous devez ajouter** dans votre implémentation, pas ce que la démo affiche déjà. Une fois ajoutées, vous les verrez ainsi :
+>
+> ```bash
+> docker compose logs hello-service        | grep event_published
+> docker compose logs notification-service | grep event_received
+> ```
+
+**Démonstration du découplage :**
+
+```bash
+# Arrêter le consommateur, créer un utilisateur, vérifier que la création RÉUSSIT quand même.
+docker compose stop notification-service
+curl -X POST http://localhost:8000/hello/users -H "Content-Type: application/json" -d '{"name":"Bob"}'
+# Réponse 201 : le producteur n'est pas bloqué par l'absence du consommateur.
+docker compose start notification-service
+```
+
+> **À noter :** avec NATS « core » (la démo), le message envoyé pendant que le consommateur est arrêté est **perdu** : la notification de Bob n'apparaîtra pas après le redémarrage. C'est exactement ce qui justifie un broker **durable** (NATS JetStream, Kafka) quand on ne peut pas se permettre de perdre un événement.
+
+> Selon le routage de votre gateway, les chemins exacts (`/hello/...`, `/notify/...`) peuvent différer. Adaptez aux préfixes de votre équipe.
 
 ---
 
 ## Pièges classiques
 
-- **Secret JWT hardcodé** dans le code : à proscrire. Toujours via env var.
-- **Mot de passe loggé** par erreur (ex. `logger.info(payload)` qui contient le payload Pydantic complet). Loguez des champs explicites, pas l'objet brut.
-- **CORS oublié** : si la login page envoie le header `Authorization`, le serveur doit l'autoriser dans la config CORS (`allow_headers=["*"]` ou explicitement `Authorization`).
-- **Token stocké dans `localStorage`** : pratique mais vulnérable au XSS. Acceptable pour ce labo, mais à mentionner comme limitation dans le README. Alternative : cookie httpOnly.
-- **Pas d'expiration** sur le JWT : un token sans `exp` est valide à vie. À éviter même pour un labo.
-- **Logs en texte libre** : `logger.info(f"user {x} connected")` perd la structure. Préférer `logger.info("login_success", extra={"user_id": x})`.
+- **Adresse du broker en dur** dans le code : toujours via variable d'environnement (`NATS_URL`).
+- **Publier avant que la connexion soit prête** : ouvrir la connexion au démarrage (`lifespan`), pas à chaque requête.
+- **Oublier d'encoder/décoder** : NATS transporte des **bytes**. Sérialisez en JSON puis `.encode()`, et `json.loads()` à la réception.
+- **Mettre tout l'objet dans l'événement** : publiez un payload minimal (ids + champs utiles), jamais de mot de passe ni de token.
+- **Faire échouer la requête HTTP si la publication échoue** : l'action métier doit rester robuste ; loguez l'erreur, ne cassez pas la réponse au client.
+- **Confondre asynchrone et "plus rapide partout"** : l'asynchrone introduit la **cohérence éventuelle**. À utiliser quand le couplage temporel pose problème, pas systématiquement.
+- **Ne pas fermer proprement** la connexion (`drain()`/`close()`) à l'arrêt : risque de messages perdus.
 
 ---
 
-## Bonus optionnels
+## Notes de résilience (optionnel, pour aller plus loin)
 
-- **Refresh token** : un second token plus long pour renouveler l'access token sans redemander le mot de passe.
-- **Rôles** dans le payload (`{"role": "admin"}`) et vérification côté route protégée.
-- **RS256** (clé asymétrique) au lieu de HS256 : le service d'auth signe avec une clé privée, les autres services vérifient avec la clé publique. Plus propre en multi-service.
-- **Corrélation des requêtes** : générer un `X-Request-ID` dans la gateway, le propager aux services, l'inclure dans tous les logs.
-- **Rate limiting** sur `/login` (ex. 5 tentatives/min/IP) pour ralentir le brute force.
+> Rien de tout ça n'est exigé pour la séance. Ce sont les patterns à connaître si vous voulez que le système survive à une panne du broker ou à une perte de message. Utile pour la démo finale et pour répondre aux questions de conception.
 
----
+**Le problème de base :** NATS « core » garde les messages **en mémoire**. Un message publié pendant qu'un consommateur est absent est **perdu**. Et si votre service publie après avoir écrit en base, mais que NATS est down à cet instant (ou que le service crashe entre les deux), la donnée existe mais l'événement ne part jamais. Les patterns ci-dessous traitent ces deux cas.
 
-## Critères de "fait" (vérification rapide)
+### 1. Broker durable (ne pas perdre les messages en vol)
 
-- [ ] `docker compose up -d --build` démarre le `auth-service` sans erreur.
-- [ ] `POST /auth/register` crée un compte (mot de passe haché en BD).
-- [ ] `POST /auth/login` avec bons identifiants retourne un JWT.
-- [ ] `POST /auth/login` avec mauvais mot de passe retourne `401`.
-- [ ] `GET /auth/me` avec token valide retourne l'utilisateur.
-- [ ] `GET /auth/me` sans token retourne `401`.
-- [ ] Toutes les routes des autres services (sauf `/health`) refusent l'accès sans token valide.
-- [ ] Login page frontend fonctionnelle (login OK et login KO testés).
-- [ ] Logs visibles en JSON dans `docker compose logs auth-service`.
-- [ ] PR ouverte vers `main`, approuvée par au moins 1 coéquipier avant le merge.
+Activez la durabilité : **NATS JetStream** ou un **topic Kafka persistant**. Le broker stocke les messages sur disque ; un consommateur qui redémarre **rattrape** ce qu'il a manqué (replay par séquence/offset). C'est le premier réflexe dès qu'un événement « ne doit pas être perdu » (paiement, transfert de propriété).
+
+### 2. Idempotence (gérer les doublons)
+
+Un broker durable livre « au moins une fois » : un même message peut être **relivré** (ex. crash avant l'accusé). Le consommateur doit donc être **idempotent** : mettez un `event_id` unique dans le payload et ignorez un id déjà traité (petite table de déduplication). Ainsi, recevoir `sale.completed` deux fois ne débite pas le portefeuille deux fois.
+
+### 3. Accusé + retry avec backoff (ne pas perdre un traitement qui échoue)
+
+Avec JetStream/Kafka, le consommateur **n'accuse (ack)** le message qu'**après** un traitement réussi. En cas d'échec, pas d'ack, donc le message est relivré. Ajoutez un **backoff** (attendre de plus en plus longtemps entre les essais) pour ne pas marteler une dépendance déjà en difficulté.
+
+### 4. Dead letter (isoler les messages « poison »)
+
+Un message qui échoue indéfiniment (donnée corrompue, bug) bloquerait la file ou boucle sans fin. Après N tentatives, routez-le vers un sujet **« à inspecter »** (dead letter) au lieu de le perdre ou de bloquer le reste. On l'analyse à froid plus tard.
+
+### 5. Transactional outbox (publier de façon fiable même si NATS est down)
+
+C'est **le** pattern pour « ne jamais perdre un événement ». Au lieu d'écrire en base **puis** de publier (deux opérations qui peuvent diverger), on fait :
+
+1. Dans **la même transaction** que la donnée métier, on écrit une ligne dans une table `outbox`.
+2. Un process séparé lit l'`outbox` et publie vers le broker, puis marque la ligne comme envoyée (avec retry si NATS est down).
+
+Résultat : l'événement est publié **si et seulement si** la transaction a été validée. Si NATS est indisponible, l'outbox accumule et rejoue dès qu'il revient.
+
+### 6. Saga (transaction distribuée multi-services avec compensation)
+
+Quand une opération couvre plusieurs services (débiter le portefeuille, changer le propriétaire, créer la commande), il n'existe **pas** de transaction unique. Une **saga** découpe l'opération en étapes, chacune avec une **compensation** qui annule son effet si une étape ultérieure échoue.
+
+- **Chorégraphie** (sans chef d'orchestre) : chaque service réagit à un événement et publie le suivant. Ex. : `sale.completed`, puis `wallet` publie `funds.debited`, puis `products` publie `ownership.transferred`. Si `products` échoue, il publie `ownership.failed`, et `wallet` réagit en publiant `funds.refunded` (la compensation). Simple à câbler, mais le flux global est diffus, réparti dans plusieurs services.
+- **Orchestration** (avec chef d'orchestre) : un service « saga » central pilote chaque étape et déclenche les compensations en cas d'échec. Flux explicite et facile à tracer, mais c'est un composant de plus à maintenir.
+
+> Pour ce labo, la **chorégraphie** suffit largement (c'est déjà du pub/sub). L'orchestration et l'outbox sont des sujets de niveau « production » à mentionner, pas à implémenter.
+
+### 7. Reconnexion côté client
+
+Le client NATS **se reconnecte automatiquement** si le broker redémarre, et peut **tamponner** les publications en attente jusqu'à une limite. Vérifiez ce comportement dans votre librairie : au-delà de la limite, les publications échouent, et c'est là que l'outbox (point 5) prend le relais. Ne supposez jamais qu'une publication réussit toujours.
 
 ---
 
